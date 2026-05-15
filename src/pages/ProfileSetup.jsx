@@ -1,5 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
+
+const API_URL = 'http://localhost:8080/api';
 
 function ProfileSetup() {
   const navigate = useNavigate();
@@ -50,20 +53,53 @@ function ProfileSetup() {
     return Object.keys(nextErrors).length === 0;
   };
 
-  const handleSubmit = (event) => {
-    event.preventDefault();
+const handleSubmit = async (event) => {
+  event.preventDefault();
 
-    if (!validate()) {
-      return;
-    }
+  if (!validate()) {
+    return;
+  }
 
-    navigate('/interesses', {
-      state: {
-        username: usernameWithAt,
-        avatarPreview,
-      },
-    });
-  };
+  try {
+
+    const token = localStorage.getItem('token');
+
+    const cleanUsername = username.replace('@', '').trim();
+
+    await axios.put(
+      `${API_URL}/users/me/username`,
+      null,
+      {
+        params: {
+          username: cleanUsername
+        },
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    );
+
+    const formData = new FormData();
+    formData.append('file', avatarFile);
+
+    await axios.post(
+      `${API_URL}/users/upload-profile-picture`,
+      formData,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        }
+      }
+    );
+
+    navigate('/interesses');
+
+  } catch (error) {
+    console.error(error);
+    alert('Erro ao atualizar perfil');
+  }
+};
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-200 to-white px-4">

@@ -6,11 +6,56 @@ function Cadastro() {
   const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
+  const [username, setUsername] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const criarConta = (event) => {
+  const criarConta = async (event) => {
     event.preventDefault();
-    if (!nome || !email || !senha) return;
-    navigate('/profile-setup');
+    setLoading(true);
+    setError('');
+
+    try {
+      const response = await fetch(
+        'http://localhost:8080/api/auth/register',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nome, email, username, password: senha })
+        }
+      );
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.message || 'Erro ao cadastrar');
+      }
+
+      const data = await response.json();
+
+      localStorage.setItem('token', data.token);
+
+      // salva dados do usuário no localStorage
+      const meResponse = await fetch('http://localhost:8080/api/users/me', {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      const user = await meResponse.json();
+
+      localStorage.setItem('alfafeed.currentUser', JSON.stringify({
+        id: user.id,
+        name: user.nome,
+        username: user.username,
+        bio: user.bio,
+        avatar: user.profilePicture || `https://i.pravatar.cc/120?u=${user.id}`,
+      }));
+
+      // navigate('/feed'); // ← vai direto pro feed
+
+    } catch (error) {
+      console.error(error);
+      setError(error.message || 'Erro ao criar conta');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -29,7 +74,7 @@ function Cadastro() {
             <input
               type="text"
               value={nome}
-              onChange={(event) => setNome(event.target.value)}
+              onChange={(e) => setNome(e.target.value)}
               className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
               placeholder="Ex: João Silva"
               required
@@ -37,13 +82,25 @@ function Cadastro() {
           </div>
 
           <div>
-            <label className="block text-gray-700 text-sm font-bold mb-2">E-mail da Unialfa</label>
+            <label className="block text-gray-700 text-sm font-bold mb-2">E-mail</label>
             <input
               type="email"
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-              placeholder="seu.nome@unialfa.com.br"
+              placeholder="seu.email@email.com"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-gray-700 text-sm font-bold mb-2">Username</label>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+              placeholder="@joao"
               required
             />
           </div>
@@ -53,18 +110,21 @@ function Cadastro() {
             <input
               type="password"
               value={senha}
-              onChange={(event) => setSenha(event.target.value)}
+              onChange={(e) => setSenha(e.target.value)}
               className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
               placeholder="••••••••"
               required
             />
           </div>
 
+          {error && <p className="text-red-500 text-sm">{error}</p>}
+
           <button
             type="submit"
+            disabled={loading}
             className="w-full bg-gradient-to-r from-orange-500 to-red-600 text-white font-bold py-3 rounded-lg hover:opacity-90 transition duration-300"
           >
-            Cadastrar
+            {loading ? 'Criando conta...' : 'Cadastrar'}
           </button>
         </form>
 

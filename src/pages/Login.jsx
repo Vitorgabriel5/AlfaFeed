@@ -1,15 +1,45 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import api from "../services/api";
 
 function Login() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [senha, setSenha] = useState('');
 
-  const fazerLogin = (event) => {
+  const fazerLogin = async (event) => {
     event.preventDefault();
-    if (!email || !senha) return;
-    navigate('/feed');
+    if (!username || !senha) return;
+
+    try {
+      const response = await api.post("/auth/login", {
+        username: username,
+        password: senha
+      });
+
+      const { token } = response.data;
+      localStorage.setItem("token", token);
+
+      const meResponse = await api.get("/users/me", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      const user = meResponse.data;
+
+      localStorage.setItem("alfafeed.currentUser", JSON.stringify({
+        id: user.id,
+        name: user.nome,
+        username: user.username,
+        bio: user.bio,
+        avatar: user.profilePicture || `https://i.pravatar.cc/120?u=${user.id}`,
+      }));
+
+      navigate("/feed");
+
+    } catch (error) {
+      console.error(error);
+      alert("Usuário ou senha inválidos");
+    }
   };
 
   return (
@@ -24,13 +54,13 @@ function Login() {
 
         <form onSubmit={fazerLogin} className="space-y-4">
           <div>
-            <label className="block text-gray-700 text-sm font-bold mb-2">E-mail do Aluno</label>
+            <label className="block text-gray-700 text-sm font-bold mb-2">Username</label>
             <input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              type="text"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
               className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-              placeholder="seu.nome@unialfa.com.br"
+              placeholder="Seu username"
               required
             />
           </div>
@@ -54,6 +84,12 @@ function Login() {
             Entrar
           </button>
         </form>
+
+        <div className="text-center mt-4">
+          <Link to="/forgot-password" className="text-sm text-orange-500 hover:underline">
+            Esqueci minha senha
+          </Link>
+        </div>
 
         <div className="mt-6 text-center">
           <p className="text-sm text-gray-600">

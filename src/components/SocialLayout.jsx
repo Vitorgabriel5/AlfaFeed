@@ -30,7 +30,15 @@ function SocialLayout({ currentUser, children, rightContent }) {
       <main className="max-w-7xl mx-auto px-6 py-6 grid grid-cols-12 gap-6">
         <aside className="col-span-3 bg-white rounded-2xl shadow-lg p-5 h-fit sticky top-24">
           <Link to="/perfil" className="flex items-center gap-3 pb-5 border-b border-gray-100">
-            <img src={currentUser.avatar} alt="Avatar do usuário" className="h-12 w-12 rounded-full object-cover" />
+            <img
+              src={
+                currentUser.avatar && currentUser.avatar.startsWith('/api/files/')
+                  ? `http://localhost:8080${currentUser.avatar}`
+                  : currentUser.avatar || `https://i.pravatar.cc/120?u=${currentUser.id}`
+              }
+              alt="Avatar do usuário"
+              className="h-12 w-12 rounded-full object-cover"
+            />
             <div>
               <h2 className="font-bold text-gray-800">{currentUser.name}</h2>
               <p className="text-sm text-gray-500">{currentUser.username}</p>
@@ -42,11 +50,10 @@ function SocialLayout({ currentUser, children, rightContent }) {
               <Link
                 key={item.label}
                 to={item.path}
-                className={`flex items-center gap-3 px-3 py-2 rounded-lg font-semibold transition ${
-                  isActive(item.path)
+                className={`flex items-center gap-3 px-3 py-2 rounded-lg font-semibold transition ${isActive(item.path)
                     ? 'bg-orange-100 text-orange-600'
                     : 'text-gray-700 hover:bg-orange-50 hover:text-orange-500'
-                }`}
+                  }`}
               >
                 <span>{item.icon}</span>
                 {item.label}

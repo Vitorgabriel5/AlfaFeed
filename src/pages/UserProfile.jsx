@@ -1,25 +1,74 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import SocialLayout from '../components/SocialLayout';
-import { getProfileByUsername, INITIAL_POSTS } from '../data/socialData';
 import { buildProfilePath, normalizeUsername } from '../utils/profileRoutes';
 import { getCurrentUser } from '../utils/currentUserStorage';
+import api from '../services/api';
 
 function UserProfile() {
   const { username } = useParams();
   const currentUser = getCurrentUser();
-  const [isFollowing, setIsFollowing] = useState(false);
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const profile = useMemo(() => {
-    const isCurrent = normalizeUsername(username) === normalizeUsername(currentUser.username);
-    if (isCurrent) return currentUser;
-    return getProfileByUsername(username);
-  }, [currentUser, username]);
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const res = await api.get('/users');
+        console.log('Username da URL:', username);
+        console.log('Usuários:', res.data.map(u => u.username));
 
-  const userPosts = useMemo(() => {
-    if (!profile) return [];
-    return INITIAL_POSTS.filter((post) => normalizeUsername(post.username) === normalizeUsername(profile.username));
-  }, [profile]);
+        const user = res.data.find(
+          u => normalizeUsername(u.username) === normalizeUsername(username)
+        );
+
+        console.log('Usuário encontrado:', user);
+
+        if (user) {
+          setProfile(user);
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProfile();
+  }, [username]);
+
+  const handleFollow = async () => {
+    if (!profile) return;
+    try {
+      if (profile.isFollowing) {
+        await api.delete(`/follow/${profile.id}`);
+        setProfile(prev => ({ ...prev, isFollowing: false, followers: prev.followers - 1 }));
+      } else {
+        await api.post(`/follow/${profile.id}`);
+        setProfile(prev => ({ ...prev, isFollowing: true, followers: prev.followers + 1 }));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const getAvatarUrl = () => {
+    if (profile?.profilePicture) {
+      if (profile.profilePicture.startsWith('/api/files/')) {
+        return `http://localhost:8080${profile.profilePicture}`;
+      }
+      return profile.profilePicture;
+    }
+    return `https://i.pravatar.cc/120?u=${profile?.id}`;
+  };
+
+  if (loading) {
+    return (
+      <SocialLayout currentUser={currentUser}>
+        <p className="text-center text-gray-400 py-10">Carregando...</p>
+      </SocialLayout>
+    );
+  }
 
   if (!profile) {
     return (
@@ -43,7 +92,11 @@ function UserProfile() {
         <div className="h-28 bg-gradient-to-r from-orange-400 to-red-600" />
         <div className="px-6 pb-6">
           <div className="-mt-12 flex items-end justify-between">
-            <img src={profile.avatar} alt={profile.name} className="h-24 w-24 rounded-full border-4 border-white object-cover" />
+            <img
+              src={getAvatarUrl()}
+              alt={profile.nome}
+              className="h-24 w-24 rounded-full border-4 border-white object-cover"
+            />
             {isMe ? (
               <Link to="/perfil" className="text-sm font-semibold px-4 py-2 rounded-lg bg-orange-50 text-orange-600 hover:bg-orange-100">
                 Editar perfil
@@ -51,51 +104,26 @@ function UserProfile() {
             ) : (
               <button
                 type="button"
-                onClick={() => setIsFollowing((prev) => !prev)}
+                onClick={handleFollow}
                 className={`text-sm font-semibold px-4 py-2 rounded-lg ${
-                  isFollowing ? 'bg-gray-200 text-gray-700' : 'bg-orange-500 text-white'
+                  profile.isFollowing ? 'bg-gray-200 text-gray-700' : 'bg-orange-500 text-white'
                 }`}
               >
-                {isFollowing ? 'Seguindo' : 'Seguir'}
+                {profile.isFollowing ? 'Seguindo' : 'Seguir'}
               </button>
             )}
           </div>
 
           <div className="mt-4">
-            <h2 className="text-2xl font-bold text-gray-800">{profile.name}</h2>
-            <p className="text-sm text-gray-500">{profile.username}</p>
-            <p className="mt-3 text-sm text-gray-700">{profile.bio}</p>
-            <p className="mt-2 text-sm text-gray-500">Curso: {profile.course}</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {(profile.interests || []).map((interest) => (
-                <span key={interest} className="text-xs px-3 py-1 rounded-full bg-orange-50 text-orange-600 font-semibold">
-                  #{interest}
-                </span>
-              ))}
+            <h2 className="text-2xl font-bold text-gray-800">{profile.nome}</h2>
+            <p className="text-sm text-gray-500">@{profile.username}</p>
+            <p className="mt-3 text-sm text-gray-700">{profile.bio || 'Sem bio ainda.'}</p>
+            <div className="mt-4 text-sm text-gray-600 flex gap-4">
+              <span><strong>{profile.followers}</strong> seguidores</span>
+              <span><strong>{profile.following}</strong> seguindo</span>
             </div>
           </div>
         </div>
-      </div>
-
-      <div className="bg-white rounded-2xl shadow-lg p-5">
-        <h3 className="text-lg font-bold text-gray-800 mb-4">Posts de {profile.name}</h3>
-
-        {userPosts.length === 0 ? (
-          <p className="text-sm text-gray-500">Este usuário ainda não publicou no feed.</p>
-        ) : (
-          <div className="space-y-3">
-            {userPosts.map((post) => (
-              <article key={post.id} className="border border-gray-100 rounded-xl p-4">
-                <p className="text-sm text-gray-700">{post.text}</p>
-                <div className="text-xs text-gray-400 mt-2 flex gap-3">
-                  <span>{post.time}</span>
-                  <span>❤️ {post.likes}</span>
-                  <span>💬 {post.comments}</span>
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
       </div>
 
       {!isMe && (
