@@ -1,183 +1,285 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import SocialLayout from '../components/SocialLayout';
-import { DEFAULT_CURRENT_USER, INITIAL_POSTS, SUGGESTIONS } from '../data/socialData';
-import { buildProfilePath, normalizeUsername } from '../utils/profileRoutes';
-import { getCurrentUser, saveCurrentUser } from '../utils/currentUserStorage';
+import PostCard from '../components/PostCard';
+import { FeedSkeleton } from '../components/LoadingSkeleton';
+import { buildProfilePath } from '../utils/profileRoutes';
+import { getAvatarUrl } from '../utils/imageUtils';
+import { postService, userService, followService } from '../services';
+import { showToast } from '../utils/toast';
+import ImageUpload from '../components/ImageUpload';
+import { useCurrentUser } from '../hooks/useCurrentUser';
 
 function Feed() {
-  const location = useLocation();
-  const onboardingUser = location.state?.user;
-
-  const [posts, setPosts] = useState(INITIAL_POSTS);
+  const { currentUser, isLoading: isUserLoading, refreshUser } = useCurrentUser(true);
+  
+  const [posts, setPosts] = useState([]);
   const [newPost, setNewPost] = useState('');
-  const [likedPosts, setLikedPosts] = useState([]);
-  const [following, setFollowing] = useState([]);
-
-  const currentUser = useMemo(() => {
-    const saved = getCurrentUser();
-
-    if (!onboardingUser) {
-      return saved;
-    }
-
-    return {
-      ...saved,
-      username: onboardingUser.username ?? saved.username,
-      avatar: onboardingUser.avatarPreview || saved.avatar,
-      interests: onboardingUser.interests || saved.interests,
-    };
-  }, [onboardingUser]);
+  const [suggestions, setSuggestions] = useState([]);
+  const [openComments, setOpenComments] = useState({});
+  const [comments, setComments] = useState({});
+  const [commentInput, setCommentInput] = useState({});
+  const [isLoading, setIsLoading] = useState(true);
+  const [isPosting, setIsPosting] = useState(false);
+  const [postImage, setPostImage] = useState(null);
 
   useEffect(() => {
-    saveCurrentUser(currentUser);
+    if (currentUser) {
+      loadFeed();
+      loadSuggestions();
+    }
   }, [currentUser]);
 
-  const handleCreatePost = () => {
+  const loadFeed = async () => {
+    try {
+      setIsLoading(true);
+      const data = await postService.getFeed();
+      setPosts(data);
+    } catch (error) {
+      console.error(error);
+      showToast.error('Erro ao carregar o feed');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadSuggestions = async () => {
+    try {
+      const users = await userService.getAllUsers();
+      const others = users.filter(u => u.id !== currentUser.id && !u.isFollowing).slice(0, 3);
+      setSuggestions(others);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const handleCreatePost = async () => {
     const content = newPost.trim();
+    
+    if (!content && !postImage) {
+      showToast.error('Escreva algo ou adicione uma imagem');
+      return;
+    }
+
+    if (content.length > 500) {
+      showToast.error('O post não pode ter mais de 500 caracteres');
+      return;
+    }
+
+    try {
+      setIsPosting(true);
+      await postService.createPost(content, postImage);
+      await loadFeed();
+      setNewPost('');
+      setPostImage(null);
+      showToast.success('Post publicado com sucesso!');
+    } catch (err) {
+      console.error(err);
+      showToast.error('Erro ao publicar post');
+    } finally {
+      setIsPosting(false);
+    }
+  };
+
+  const handleLike = async (postId) => {
+    try {
+      await postService.likePost(postId);
+      setPosts(prev => prev.map(p => p.id !== postId ? p :
+        { ...p, liked: !p.liked, likes: p.liked ? p.likes - 1 : p.likes + 1 }));
+    } catch (err) {
+      console.error(err);
+      showToast.error('Erro ao curtir post');
+    }
+  };
+
+  const handleRepost = async (postId) => {
+    try {
+      await postService.repostPost(postId);
+      setPosts(prev => prev.map(p => p.id !== postId ? p :
+        { ...p, reposted: true, reposts: (p.reposts || 0) + 1 }));
+      showToast.success('Post repostado!');
+    } catch (err) {
+      console.error(err);
+      showToast.error(err.response?.data?.message || 'Erro ao repostar');
+    }
+  };
+
+  const handleRemoveRepost = async (postId) => {
+    try {
+      await postService.removeRepost(postId);
+      setPosts(prev => prev.map(p => p.id !== postId ? p :
+        { ...p, reposted: false, reposts: Math.max(0, (p.reposts || 0) - 1) }));
+      showToast.success('Repost removido');
+    } catch (err) {
+      console.error(err);
+      showToast.error('Erro ao remover repost');
+    }
+  };
+
+  const handleFollow = async (userId) => {
+    try {
+      await followService.follow(userId);
+      setSuggestions(prev => prev.filter(u => u.id !== userId));
+      showToast.success('Agora você está seguindo essa pessoa!');
+    } catch (err) {
+      console.error(err);
+      showToast.error('Erro ao seguir usuário');
+    }
+  };
+
+  const toggleComments = async (postId) => {
+    const isOpen = openComments[postId];
+    setOpenComments(prev => ({ ...prev, [postId]: !isOpen }));
+    if (!isOpen && !comments[postId]) {
+      try {
+        const data = await postService.getComments(postId);
+        setComments(prev => ({ ...prev, [postId]: data }));
+      } catch (err) {
+        console.error(err);
+        showToast.error('Erro ao carregar comentários');
+      }
+    }
+  };
+
+  const handleAddComment = async (postId) => {
+    const content = commentInput[postId]?.trim();
     if (!content) return;
-
-    const post = {
-      id: Date.now(),
-      name: currentUser.name || DEFAULT_CURRENT_USER.name,
-      username: currentUser.username,
-      avatar: currentUser.avatar,
-      text: content,
-      time: 'agora',
-      likes: 0,
-      comments: 0,
-      shares: 0,
-    };
-
-    setPosts((prev) => [post, ...prev]);
-    setNewPost('');
+    
+    try {
+      const newComment = await postService.addComment(postId, content);
+      setComments(prev => ({ ...prev, [postId]: [...(prev[postId] || []), newComment] }));
+      setCommentInput(prev => ({ ...prev, [postId]: '' }));
+      setPosts(prev => prev.map(p => p.id !== postId ? p : { ...p, comments: (p.comments || 0) + 1 }));
+      showToast.success('Comentário adicionado!');
+    } catch (err) {
+      console.error(err);
+      showToast.error('Erro ao adicionar comentário');
+    }
   };
 
-  const handleLike = (postId) => {
-    const alreadyLiked = likedPosts.includes(postId);
-    setLikedPosts((prev) => (alreadyLiked ? prev.filter((id) => id !== postId) : [...prev, postId]));
-    setPosts((prev) =>
-      prev.map((post) => {
-        if (post.id !== postId) return post;
-        return {
-          ...post,
-          likes: alreadyLiked ? Math.max(0, post.likes - 1) : post.likes + 1,
-        };
-      }),
+  // ✅ VERIFICAR LOADING AQUI (fora das funções)
+  if (isUserLoading || !currentUser) {
+    return (
+      <SocialLayout currentUser={currentUser}>
+        <FeedSkeleton />
+      </SocialLayout>
     );
-  };
+  }
 
-  const handleFollowToggle = (userId) => {
-    setFollowing((prev) => (prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]));
-  };
+  const charCount = newPost.length;
+  const maxChars = 500;
+  const isNearLimit = charCount > maxChars * 0.8;
+  const isOverLimit = charCount > maxChars;
 
   return (
-    <SocialLayout
+    <SocialLayout 
       currentUser={currentUser}
       rightContent={
-        <div className="bg-white rounded-2xl shadow-lg p-4">
-          <h2 className="text-lg font-bold text-gray-800 mb-3">Quem seguir</h2>
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-4">
+          <h2 className="text-lg font-bold text-gray-800 dark:text-white mb-3">Quem seguir</h2>
           <div className="space-y-3">
-            {SUGGESTIONS.map((suggestion) => {
-              const isFollowing = following.includes(suggestion.id);
-
-              return (
-                <div key={suggestion.id} className="flex items-center justify-between gap-2">
-                  <Link to={buildProfilePath(suggestion.username)} className="flex items-center gap-2 min-w-0 hover:opacity-90">
-                    <img src={suggestion.avatar} alt={suggestion.name} className="h-10 w-10 rounded-full object-cover" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-gray-800 truncate">{suggestion.name}</p>
-                      <p className="text-xs text-gray-500 truncate">{suggestion.username} • {suggestion.course}</p>
-                    </div>
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => handleFollowToggle(suggestion.id)}
-                    className={`text-xs font-bold px-3 py-1 rounded-full transition ${
-                      isFollowing ? 'bg-gray-200 text-gray-700' : 'bg-gradient-to-r from-orange-500 to-red-600 text-white'
-                    }`}
-                  >
-                    {isFollowing ? 'Seguindo' : 'Seguir'}
-                  </button>
-                </div>
-              );
-            })}
+            {suggestions.length === 0 && (
+              <p className="text-sm text-gray-400">Nenhuma sugestão no momento.</p>
+            )}
+            {suggestions.map((s) => (
+              <div key={s.id} className="flex items-center justify-between gap-2">
+                <Link to={buildProfilePath('@' + s.username)} className="flex items-center gap-2 min-w-0 hover:opacity-90">
+                  <img src={getAvatarUrl(s.profilePicture, s.id)} alt={s.nome} className="h-10 w-10 rounded-full object-cover" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{s.nome}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">@{s.username}</p>
+                  </div>
+                </Link>
+                <button 
+                  type="button" 
+                  onClick={() => handleFollow(s.id)}
+                  className="text-xs font-bold px-3 py-1 rounded-full bg-gradient-to-r from-orange-500 to-red-600 text-white hover:opacity-90 transition"
+                >
+                  Seguir
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       }
     >
-      <div className="bg-white rounded-2xl shadow-lg p-4">
-        <textarea
-          value={newPost}
-          onChange={(event) => setNewPost(event.target.value)}
-          placeholder="Compartilhe algo com a galera da sua universidade..."
-          className="w-full h-28 border border-gray-200 rounded-xl p-3 resize-none focus:outline-none focus:ring-2 focus:ring-orange-500"
-        />
-        <div className="mt-3 flex justify-end">
-          <button
-            type="button"
-            onClick={handleCreatePost}
-            className="bg-gradient-to-r from-orange-500 to-red-600 text-white font-bold py-2 px-6 rounded-lg hover:opacity-90 transition"
-          >
-            Publicar
-          </button>
+      {/* Criar post */}
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-4">
+        <div className="flex gap-3">
+          <img
+            src={getAvatarUrl(currentUser.profilePicture, currentUser.id)}
+            alt="Você" 
+            className="h-11 w-11 rounded-full object-cover flex-shrink-0"
+          />
+          <div className="flex-1">
+            <textarea 
+              value={newPost} 
+              onChange={(e) => setNewPost(e.target.value)}
+              onKeyDown={(e) => { 
+                if (e.key === 'Enter' && e.ctrlKey && !isPosting) handleCreatePost(); 
+              }}
+              placeholder="O que está acontecendo?"
+              className="w-full h-20 resize-none focus:outline-none text-gray-800 dark:text-white dark:bg-gray-800 placeholder-gray-400 dark:placeholder-gray-500 text-lg"
+              disabled={isPosting}
+            />
+            
+            <ImageUpload onImageUploaded={setPostImage} />
+            
+            <div className="border-t border-gray-100 dark:border-gray-700 pt-3 flex justify-between items-center mt-3">
+              <div className="flex items-center gap-2">
+                <span className={`text-xs font-medium ${isOverLimit ? 'text-red-500' : isNearLimit ? 'text-orange-500' : 'text-gray-400'}`}>
+                  {charCount > 0 && `${charCount}/${maxChars}`}
+                </span>
+              </div>
+              <button 
+                type="button" 
+                onClick={handleCreatePost} 
+                disabled={(!newPost.trim() && !postImage) || isOverLimit || isPosting}
+                className="bg-gradient-to-r from-orange-500 to-red-600 text-white font-bold py-2 px-5 rounded-full hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isPosting ? 'Publicando...' : 'Publicar'}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="space-y-4">
-        {posts.map((post) => {
-          const isLiked = likedPosts.includes(post.id);
-          const profilePath = buildProfilePath(post.username);
-
-          return (
-            <article key={post.id} className="bg-white rounded-2xl shadow-lg p-4">
-              <div className="flex items-start gap-3">
-                <Link to={profilePath}>
-                  <img src={post.avatar} alt={post.name} className="h-11 w-11 rounded-full object-cover" />
-                </Link>
-
-                <div className="w-full">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Link to={profilePath} className="font-bold text-gray-800 hover:underline">
-                        {post.name}
-                      </Link>
-                      <p className="text-sm text-gray-500">
-                        <Link to={profilePath} className="hover:text-orange-600">
-                          {post.username}
-                        </Link>{' '}
-                        • {post.time}
-                      </p>
-                    </div>
-                  </div>
-                  <p className="text-gray-700 mt-3">{post.text}</p>
-
-                  <div className="mt-4 flex items-center gap-5 text-sm text-gray-500 font-medium">
-                    <button
-                      type="button"
-                      onClick={() => handleLike(post.id)}
-                      className={`hover:text-orange-500 transition ${isLiked ? 'text-orange-500' : ''}`}
-                    >
-                      ❤️ Curtir ({post.likes})
-                    </button>
-                    <button type="button" className="hover:text-orange-500 transition">
-                      💬 Comentar ({post.comments})
-                    </button>
-                    <button type="button" className="hover:text-orange-500 transition">
-                      🔁 Compartilhar ({post.shares})
-                    </button>
-                    {normalizeUsername(post.username) !== normalizeUsername(currentUser.username) && (
-                      <Link to={profilePath} className="text-orange-500 hover:underline">
-                        Ver perfil
-                      </Link>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </article>
-          );
-        })}
-      </div>
+      {/* Posts */}
+      {isLoading ? (
+        <FeedSkeleton />
+      ) : (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden">
+          {posts.length === 0 && (
+            <div className="p-10 text-center">
+              <svg className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+              <p className="text-gray-500 dark:text-gray-400 text-lg font-medium">
+                Seu feed está vazio
+              </p>
+              <p className="text-gray-400 dark:text-gray-500 text-sm mt-2">
+                Siga pessoas para ver posts aqui ou publique algo!
+              </p>
+            </div>
+          )}
+          {posts.map((post) => (
+            <PostCard
+              key={post.id}
+              post={post}
+              currentUser={currentUser}
+              onLike={handleLike}
+              onRepost={handleRepost}
+              onRemoveRepost={handleRemoveRepost}
+              onComment={toggleComments}
+              openComments={openComments}
+              comments={comments}
+              commentInput={commentInput}
+              setCommentInput={setCommentInput}
+              onAddComment={handleAddComment}
+            />
+          ))}
+        </div>
+      )}
     </SocialLayout>
   );
 }

@@ -1,33 +1,41 @@
-import { DEFAULT_CURRENT_USER } from '../data/socialData';
-import { formatUsername } from './profileRoutes';
-
-const STORAGE_KEY = 'alfafeed.currentUser';
+// src/utils/currentUserStorage.js
+import { userService } from '../services';
 
 export const getCurrentUser = () => {
+  const stored = localStorage.getItem('alfafeed.currentUser');
+  if (!stored) return null;
+  
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return DEFAULT_CURRENT_USER;
-    }
-
-    const parsed = JSON.parse(raw);
-    return {
-      ...DEFAULT_CURRENT_USER,
-      ...parsed,
-      username: formatUsername(parsed.username || DEFAULT_CURRENT_USER.username),
-    };
-  } catch {
-    return DEFAULT_CURRENT_USER;
+    return JSON.parse(stored);
+  } catch (error) {
+    console.error('Erro ao parsear currentUser:', error);
+    localStorage.removeItem('alfafeed.currentUser');
+    return null;
   }
 };
 
-export const saveCurrentUser = (user) => {
-  const nextUser = {
-    ...DEFAULT_CURRENT_USER,
-    ...user,
-    username: formatUsername(user?.username || DEFAULT_CURRENT_USER.username),
-  };
+export const setCurrentUser = (user) => {
+  if (user) {
+    localStorage.setItem('alfafeed.currentUser', JSON.stringify(user));
+  }
+};
 
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextUser));
-  return nextUser;
+export const updateCurrentUser = async () => {
+  try {
+    const user = await userService.getCurrentUser();
+    setCurrentUser(user);
+    return user;
+  } catch (error) {
+    console.error('Erro ao atualizar currentUser:', error);
+    // Se o token expirou, limpar tudo
+    if (error.response?.status === 401) {
+      clearCurrentUser();
+    }
+    throw error;
+  }
+};
+
+export const clearCurrentUser = () => {
+  localStorage.removeItem('alfafeed.currentUser');
+  localStorage.removeItem('token');
 };

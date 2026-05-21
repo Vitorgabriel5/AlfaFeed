@@ -1,141 +1,253 @@
+// src/pages/Cadastro.jsx
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { authService, oauthService } from '../services';
+import { isValidEmail, isValidUsername, isValidPassword } from '../utils/validators';
+import { showToast } from '../utils/toast';
+import GoogleLoginButton from '../components/GoogleLoginButton';
 
 function Cadastro() {
   const navigate = useNavigate();
-  const [nome, setNome] = useState('');
-  const [email, setEmail] = useState('');
-  const [senha, setSenha] = useState('');
-  const [username, setUsername] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [formData, setFormData] = useState({
+    nome: '',
+    email: '',
+    username: '',
+    password: '',
+    confirmPassword: ''
+  });
+  const [errors, setErrors] = useState({});
+  const [isLoading, setIsLoading] = useState(false);
 
-  const criarConta = async (event) => {
-    event.preventDefault();
-    setLoading(true);
-    setError('');
+  const handleChange = (e) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value
+    });
+    // Limpar erro do campo quando começar a digitar
+    if (errors[e.target.name]) {
+      setErrors({ ...errors, [e.target.name]: '' });
+    }
+  };
+
+  const validateForm = () => {
+    const newErrors = {};
+
+    if (!formData.nome || formData.nome.length < 3) {
+      newErrors.nome = 'Nome deve ter no mínimo 3 caracteres';
+    }
+
+    if (!isValidEmail(formData.email)) {
+      newErrors.email = 'Email inválido';
+    }
+
+    if (!isValidUsername(formData.username)) {
+      newErrors.username = 'Username deve ter 3-20 caracteres (apenas letras, números e _)';
+    }
+
+    if (!isValidPassword(formData.password)) {
+      newErrors.password = 'Senha deve ter no mínimo 8 caracteres';
+    }
+
+    if (formData.password !== formData.confirmPassword) {
+      newErrors.confirmPassword = 'As senhas não coincidem';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!validateForm()) {
+      return;
+    }
+
+    setIsLoading(true);
 
     try {
-      const response = await fetch(
-        'http://localhost:8080/api/auth/register',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ nome, email, username, password: senha })
-        }
-      );
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.message || 'Erro ao cadastrar');
-      }
-
-      const data = await response.json();
-
-      localStorage.setItem('token', data.token);
-
-      // salva dados do usuário no localStorage
-      const meResponse = await fetch('http://localhost:8080/api/users/me', {
-        headers: { Authorization: `Bearer ${data.token}` }
+      const response = await authService.register({
+        nome: formData.nome,
+        email: formData.email,
+        username: formData.username,
+        password: formData.password
       });
-      const user = await meResponse.json();
 
-      localStorage.setItem('alfafeed.currentUser', JSON.stringify({
-        id: user.id,
-        name: user.nome,
-        username: user.username,
-        bio: user.bio,
-        avatar: user.profilePicture || `https://i.pravatar.cc/120?u=${user.id}`,
-      }));
-
-      // navigate('/feed'); // ← vai direto pro feed
-
-    } catch (error) {
-      console.error(error);
-      setError(error.message || 'Erro ao criar conta');
+      localStorage.setItem('token', response.token);
+      localStorage.setItem('alfafeed.currentUser', JSON.stringify(response.user));
+      showToast.success('Cadastro realizado com sucesso!');
+      navigate('/feed');
+    } catch (err) {
+      console.error(err);
+      const errorMsg = err.response?.data?.message || 'Erro ao criar conta';
+      setErrors({ submit: errorMsg });
+      showToast.error(errorMsg);
     } finally {
-      setLoading(false);
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleSuccess = async (accessToken) => {
+    setIsLoading(true);
+    try {
+      const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      const userData = await userResponse.json();
+      
+      const authResponse = await oauthService.loginWithGoogle(userData.id);
+      
+      localStorage.setItem('token', authResponse.token);
+      localStorage.setItem('alfafeed.currentUser', JSON.stringify({
+        id: userData.id,
+        username: userData.email.split('@')[0],
+        nome: userData.name,
+        avatar: userData.picture,
+        email: userData.email
+      }));
+      
+      showToast.success('Conta criada com Google!');
+      navigate('/feed');
+    } catch (err) {
+      console.error('Erro no Google signup:', err);
+      showToast.error('Erro ao criar conta com Google');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-200 to-white">
-      <div className="bg-white p-8 rounded-2xl shadow-lg max-w-sm w-full">
-        <div className="text-center mb-6">
-          <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-red-600">
-            Nova Conta
+    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-red-50 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl p-8 w-full max-w-md">
+        {/* Logo */}
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-orange-500 to-red-600 rounded-2xl mb-4">
+            <span className="text-3xl font-bold text-white">A</span>
+          </div>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+            Criar conta
           </h1>
-          <p className="text-gray-500 text-sm mt-2">Junte-se ao AlfaFeed</p>
+          <p className="text-gray-600 dark:text-gray-400">
+            Junte-se à comunidade AlfaFeed
+          </p>
         </div>
 
-        <form onSubmit={criarConta} className="space-y-4">
+        {/* Botão Google */}
+        <div className="mb-6">
+          <GoogleLoginButton onSuccess={handleGoogleSuccess} />
+        </div>
+
+        {/* Divider */}
+        <div className="relative my-6">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
+          </div>
+          <div className="relative flex justify-center text-sm">
+            <span className="px-4 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+              Ou cadastre-se com email
+            </span>
+          </div>
+        </div>
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {errors.submit && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">
+              {errors.submit}
+            </div>
+          )}
+
           <div>
-            <label className="block text-gray-700 text-sm font-bold mb-2">Nome Completo</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Nome completo
+            </label>
             <input
               type="text"
-              value={nome}
-              onChange={(e) => setNome(e.target.value)}
-              className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-              placeholder="Ex: João Silva"
-              required
+              name="nome"
+              value={formData.nome}
+              onChange={handleChange}
+              className={`w-full px-4 py-3 border-2 ${errors.nome ? 'border-red-500' : 'border-gray-200 dark:border-gray-700'} rounded-xl focus:outline-none focus:border-orange-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition-colors`}
+              disabled={isLoading}
             />
+            {errors.nome && <p className="mt-1 text-sm text-red-500">{errors.nome}</p>}
           </div>
 
           <div>
-            <label className="block text-gray-700 text-sm font-bold mb-2">E-mail</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Email
+            </label>
             <input
               type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-              placeholder="seu.email@email.com"
-              required
+              name="email"
+              value={formData.email}
+              onChange={handleChange}
+              className={`w-full px-4 py-3 border-2 ${errors.email ? 'border-red-500' : 'border-gray-200 dark:border-gray-700'} rounded-xl focus:outline-none focus:border-orange-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition-colors`}
+              disabled={isLoading}
             />
+            {errors.email && <p className="mt-1 text-sm text-red-500">{errors.email}</p>}
           </div>
 
           <div>
-            <label className="block text-gray-700 text-sm font-bold mb-2">Username</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Nome de usuário
+            </label>
             <input
               type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-              placeholder="@joao"
-              required
+              name="username"
+              value={formData.username}
+              onChange={handleChange}
+              className={`w-full px-4 py-3 border-2 ${errors.username ? 'border-red-500' : 'border-gray-200 dark:border-gray-700'} rounded-xl focus:outline-none focus:border-orange-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition-colors`}
+              disabled={isLoading}
             />
+            {errors.username && <p className="mt-1 text-sm text-red-500">{errors.username}</p>}
           </div>
 
           <div>
-            <label className="block text-gray-700 text-sm font-bold mb-2">Crie uma Senha</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Senha
+            </label>
             <input
               type="password"
-              value={senha}
-              onChange={(e) => setSenha(e.target.value)}
-              className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-              placeholder="••••••••"
-              required
+              name="password"
+              value={formData.password}
+              onChange={handleChange}
+              className={`w-full px-4 py-3 border-2 ${errors.password ? 'border-red-500' : 'border-gray-200 dark:border-gray-700'} rounded-xl focus:outline-none focus:border-orange-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition-colors`}
+              disabled={isLoading}
             />
+            {errors.password && <p className="mt-1 text-sm text-red-500">{errors.password}</p>}
           </div>
 
-          {error && <p className="text-red-500 text-sm">{error}</p>}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Confirmar senha
+            </label>
+            <input
+              type="password"
+              name="confirmPassword"
+              value={formData.confirmPassword}
+              onChange={handleChange}
+              className={`w-full px-4 py-3 border-2 ${errors.confirmPassword ? 'border-red-500' : 'border-gray-200 dark:border-gray-700'} rounded-xl focus:outline-none focus:border-orange-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition-colors`}
+              disabled={isLoading}
+            />
+            {errors.confirmPassword && <p className="mt-1 text-sm text-red-500">{errors.confirmPassword}</p>}
+          </div>
 
           <button
             type="submit"
-            disabled={loading}
-            className="w-full bg-gradient-to-r from-orange-500 to-red-600 text-white font-bold py-3 rounded-lg hover:opacity-90 transition duration-300"
+            disabled={isLoading}
+            className="w-full bg-gradient-to-r from-orange-500 to-red-600 text-white font-bold py-3 px-4 rounded-xl hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? 'Criando conta...' : 'Cadastrar'}
+            {isLoading ? 'Criando conta...' : 'Criar conta'}
           </button>
         </form>
 
-        <div className="mt-6 text-center">
-          <p className="text-sm text-gray-600">
-            Já tem uma conta?{' '}
-            <Link to="/" className="text-orange-500 font-bold hover:underline">
-              Faça login
-            </Link>
-          </p>
-        </div>
+        {/* Footer */}
+        <p className="mt-6 text-center text-sm text-gray-600 dark:text-gray-400">
+          Já tem uma conta?{' '}
+          <Link to="/" className="text-orange-600 dark:text-orange-400 hover:underline font-medium">
+            Entrar
+          </Link>
+        </p>
       </div>
     </div>
   );
