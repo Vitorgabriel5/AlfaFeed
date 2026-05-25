@@ -6,9 +6,8 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api'
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 30000, // 30 segundos
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  // ✅ REMOVIDO: 'Content-Type': 'application/json'
+  // O axios vai definir automaticamente baseado no tipo de dados
 });
 
 // Interceptor de requisição
@@ -18,6 +17,12 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    
+    // ✅ Apenas define Content-Type como JSON se não for FormData
+    if (!(config.data instanceof FormData)) {
+      config.headers['Content-Type'] = 'application/json';
+    }
+    
     return config;
   },
   (error) => {

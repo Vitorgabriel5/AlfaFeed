@@ -1,21 +1,20 @@
 // src/pages/Cadastro.jsx
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { authService, oauthService } from '../services';
-import { isValidEmail, isValidUsername, isValidPassword } from '../utils/validators';
+import { authService, oauthService, userService } from '../services';
 import { showToast } from '../utils/toast';
+import { setCurrentUser } from '../utils/currentUserStorage';
 import GoogleLoginButton from '../components/GoogleLoginButton';
 
 function Cadastro() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
     nome: '',
-    email: '',
     username: '',
-    password: '',
-    confirmPassword: ''
+    email: '',
+    password: ''
   });
-  const [errors, setErrors] = useState({});
+  const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   const handleChange = (e) => {
@@ -23,65 +22,55 @@ function Cadastro() {
       ...formData,
       [e.target.name]: e.target.value
     });
-    // Limpar erro do campo quando começar a digitar
-    if (errors[e.target.name]) {
-      setErrors({ ...errors, [e.target.name]: '' });
-    }
-  };
-
-  const validateForm = () => {
-    const newErrors = {};
-
-    if (!formData.nome || formData.nome.length < 3) {
-      newErrors.nome = 'Nome deve ter no mínimo 3 caracteres';
-    }
-
-    if (!isValidEmail(formData.email)) {
-      newErrors.email = 'Email inválido';
-    }
-
-    if (!isValidUsername(formData.username)) {
-      newErrors.username = 'Username deve ter 3-20 caracteres (apenas letras, números e _)';
-    }
-
-    if (!isValidPassword(formData.password)) {
-      newErrors.password = 'Senha deve ter no mínimo 8 caracteres';
-    }
-
-    if (formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = 'As senhas não coincidem';
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    setError('');
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (!validateForm()) {
+    setError('');
+    setIsLoading(true);
+
+    // Validações
+    if (formData.password.length < 6) {
+      setError('A senha deve ter pelo menos 6 caracteres');
+      setIsLoading(false);
       return;
     }
 
-    setIsLoading(true);
+    if (formData.username.length < 3) {
+      setError('O nome de usuário deve ter pelo menos 3 caracteres');
+      setIsLoading(false);
+      return;
+    }
 
     try {
-      const response = await authService.register({
-        nome: formData.nome,
-        email: formData.email,
-        username: formData.username,
-        password: formData.password
-      });
-
+      // ✅ REGISTRAR
+      const response = await authService.register(formData);
+      
+      // ✅ SALVAR TOKEN
       localStorage.setItem('token', response.token);
-      localStorage.setItem('alfafeed.currentUser', JSON.stringify(response.user));
-      showToast.success('Cadastro realizado com sucesso!');
+      
+      // ✅ BUSCAR DADOS DO USUÁRIO
+      const user = await userService.getCurrentUser();
+      setCurrentUser(user);
+      
+      // ✅ SUCESSO
+      showToast.success('Conta criada com sucesso!');
       navigate('/feed');
+      
     } catch (err) {
       console.error(err);
-      const errorMsg = err.response?.data?.message || 'Erro ao criar conta';
-      setErrors({ submit: errorMsg });
-      showToast.error(errorMsg);
+      
+      // Tratar erros específicos
+      if (err.response?.status === 409) {
+        setError('Este email ou nome de usuário já está em uso');
+      } else if (err.response?.data?.message) {
+        setError(err.response.data.message);
+      } else {
+        setError('Erro ao criar conta. Tente novamente.');
+      }
+      
+      showToast.error('Erro ao criar conta');
     } finally {
       setIsLoading(false);
     }
@@ -90,24 +79,23 @@ function Cadastro() {
   const handleGoogleSuccess = async (accessToken) => {
     setIsLoading(true);
     try {
+      // ✅ BUSCAR DADOS DO GOOGLE
       const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
       const userData = await userResponse.json();
       
-      const authResponse = await oauthService.loginWithGoogle(userData.id);
-      
+      // ✅ LOGIN COM GOOGLE
+      const authResponse = await oauthService.loginWithGoogle(accessToken);
       localStorage.setItem('token', authResponse.token);
-      localStorage.setItem('alfafeed.currentUser', JSON.stringify({
-        id: userData.id,
-        username: userData.email.split('@')[0],
-        nome: userData.name,
-        avatar: userData.picture,
-        email: userData.email
-      }));
+      
+      // ✅ BUSCAR DADOS COMPLETOS DO USUÁRIO
+      const user = await userService.getCurrentUser();
+      setCurrentUser(user);
       
       showToast.success('Conta criada com Google!');
       navigate('/feed');
+      
     } catch (err) {
       console.error('Erro no Google signup:', err);
       showToast.error('Erro ao criar conta com Google');
@@ -125,7 +113,7 @@ function Cadastro() {
             <span className="text-3xl font-bold text-white">A</span>
           </div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-            Criar conta
+            Crie sua conta
           </h1>
           <p className="text-gray-600 dark:text-gray-400">
             Junte-se à comunidade AlfaFeed
@@ -151,9 +139,9 @@ function Cadastro() {
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
-          {errors.submit && (
+          {error && (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">
-              {errors.submit}
+              {error}
             </div>
           )}
 
@@ -166,25 +154,11 @@ function Cadastro() {
               name="nome"
               value={formData.nome}
               onChange={handleChange}
-              className={`w-full px-4 py-3 border-2 ${errors.nome ? 'border-red-500' : 'border-gray-200 dark:border-gray-700'} rounded-xl focus:outline-none focus:border-orange-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition-colors`}
+              className="w-full px-4 py-3 border-2 border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:border-orange-500 dark:focus:border-orange-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition-colors"
+              required
               disabled={isLoading}
+              placeholder="João Silva"
             />
-            {errors.nome && <p className="mt-1 text-sm text-red-500">{errors.nome}</p>}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Email
-            </label>
-            <input
-              type="email"
-              name="email"
-              value={formData.email}
-              onChange={handleChange}
-              className={`w-full px-4 py-3 border-2 ${errors.email ? 'border-red-500' : 'border-gray-200 dark:border-gray-700'} rounded-xl focus:outline-none focus:border-orange-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition-colors`}
-              disabled={isLoading}
-            />
-            {errors.email && <p className="mt-1 text-sm text-red-500">{errors.email}</p>}
           </div>
 
           <div>
@@ -196,10 +170,31 @@ function Cadastro() {
               name="username"
               value={formData.username}
               onChange={handleChange}
-              className={`w-full px-4 py-3 border-2 ${errors.username ? 'border-red-500' : 'border-gray-200 dark:border-gray-700'} rounded-xl focus:outline-none focus:border-orange-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition-colors`}
+              className="w-full px-4 py-3 border-2 border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:border-orange-500 dark:focus:border-orange-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition-colors"
+              required
               disabled={isLoading}
+              placeholder="joaosilva"
+              minLength={3}
             />
-            {errors.username && <p className="mt-1 text-sm text-red-500">{errors.username}</p>}
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Mínimo 3 caracteres, sem espaços
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Email
+            </label>
+            <input
+              type="email"
+              name="email"
+              value={formData.email}
+              onChange={handleChange}
+              className="w-full px-4 py-3 border-2 border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:border-orange-500 dark:focus:border-orange-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition-colors"
+              required
+              disabled={isLoading}
+              placeholder="joao@exemplo.com"
+            />
           </div>
 
           <div>
@@ -211,25 +206,15 @@ function Cadastro() {
               name="password"
               value={formData.password}
               onChange={handleChange}
-              className={`w-full px-4 py-3 border-2 ${errors.password ? 'border-red-500' : 'border-gray-200 dark:border-gray-700'} rounded-xl focus:outline-none focus:border-orange-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition-colors`}
+              className="w-full px-4 py-3 border-2 border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:border-orange-500 dark:focus:border-orange-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition-colors"
+              required
               disabled={isLoading}
+              placeholder="••••••••"
+              minLength={6}
             />
-            {errors.password && <p className="mt-1 text-sm text-red-500">{errors.password}</p>}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Confirmar senha
-            </label>
-            <input
-              type="password"
-              name="confirmPassword"
-              value={formData.confirmPassword}
-              onChange={handleChange}
-              className={`w-full px-4 py-3 border-2 ${errors.confirmPassword ? 'border-red-500' : 'border-gray-200 dark:border-gray-700'} rounded-xl focus:outline-none focus:border-orange-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition-colors`}
-              disabled={isLoading}
-            />
-            {errors.confirmPassword && <p className="mt-1 text-sm text-red-500">{errors.confirmPassword}</p>}
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Mínimo 6 caracteres
+            </p>
           </div>
 
           <button
@@ -244,9 +229,17 @@ function Cadastro() {
         {/* Footer */}
         <p className="mt-6 text-center text-sm text-gray-600 dark:text-gray-400">
           Já tem uma conta?{' '}
-          <Link to="/" className="text-orange-600 dark:text-orange-400 hover:underline font-medium">
-            Entrar
+          <Link to="/login" className="text-orange-600 dark:text-orange-400 hover:underline font-medium">
+            Faça login
           </Link>
+        </p>
+
+        {/* Termos */}
+        <p className="mt-4 text-center text-xs text-gray-500 dark:text-gray-400">
+          Ao criar uma conta, você concorda com nossos{' '}
+          <a href="#" className="text-orange-600 hover:underline">Termos de Serviço</a>
+          {' '}e{' '}
+          <a href="#" className="text-orange-600 hover:underline">Política de Privacidade</a>
         </p>
       </div>
     </div>

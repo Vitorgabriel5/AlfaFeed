@@ -1,3 +1,4 @@
+// src/pages/Feed.jsx
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import SocialLayout from '../components/SocialLayout';
@@ -9,6 +10,7 @@ import { postService, userService, followService } from '../services';
 import { showToast } from '../utils/toast';
 import ImageUpload from '../components/ImageUpload';
 import { useCurrentUser } from '../hooks/useCurrentUser';
+import DefaultAvatar from '../components/DefaultAvatar';
 
 function Feed() {
   const { currentUser, isLoading: isUserLoading, refreshUser } = useCurrentUser(true);
@@ -157,7 +159,6 @@ function Feed() {
     }
   };
 
-  // ✅ VERIFICAR LOADING AQUI (fora das funções)
   if (isUserLoading || !currentUser) {
     return (
       <SocialLayout currentUser={currentUser}>
@@ -171,46 +172,65 @@ function Feed() {
   const isNearLimit = charCount > maxChars * 0.8;
   const isOverLimit = charCount > maxChars;
 
+  const avatarUrl = getAvatarUrl(currentUser.profilePicture, currentUser.id);
+
   return (
     <SocialLayout 
       currentUser={currentUser}
       rightContent={
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-4">
+        <div className="bg-gray-50 dark:bg-gray-900 rounded-2xl p-4">
           <h2 className="text-lg font-bold text-gray-800 dark:text-white mb-3">Quem seguir</h2>
           <div className="space-y-3">
             {suggestions.length === 0 && (
-              <p className="text-sm text-gray-400">Nenhuma sugestão no momento.</p>
+              <p className="text-sm text-gray-400 dark:text-gray-500">Nenhuma sugestão no momento.</p>
             )}
-            {suggestions.map((s) => (
-              <div key={s.id} className="flex items-center justify-between gap-2">
-                <Link to={buildProfilePath('@' + s.username)} className="flex items-center gap-2 min-w-0 hover:opacity-90">
-                  <img src={getAvatarUrl(s.profilePicture, s.id)} alt={s.nome} className="h-10 w-10 rounded-full object-cover" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{s.nome}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">@{s.username}</p>
-                  </div>
-                </Link>
-                <button 
-                  type="button" 
-                  onClick={() => handleFollow(s.id)}
-                  className="text-xs font-bold px-3 py-1 rounded-full bg-gradient-to-r from-orange-500 to-red-600 text-white hover:opacity-90 transition"
-                >
-                  Seguir
-                </button>
-              </div>
-            ))}
+            {suggestions.map((s) => {
+              const suggestionAvatarUrl = getAvatarUrl(s.profilePicture, s.id);
+              
+              return (
+                <div key={s.id} className="flex items-center justify-between gap-2">
+                  <Link to={buildProfilePath('@' + s.username)} className="flex items-center gap-2 min-w-0 hover:opacity-90">
+                    {suggestionAvatarUrl ? (
+                      <img 
+                        src={suggestionAvatarUrl} 
+                        alt={s.nome} 
+                        className="h-10 w-10 rounded-full object-cover" 
+                      />
+                    ) : (
+                      <DefaultAvatar name={s.username} size="md" />
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{s.nome}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate">@{s.username}</p>
+                    </div>
+                  </Link>
+                  <button 
+                    type="button" 
+                    onClick={() => handleFollow(s.id)}
+                    className="text-xs font-bold px-3 py-1 rounded-full bg-gradient-to-r from-orange-500 to-red-600 text-white hover:opacity-90 transition"
+                  >
+                    Seguir
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
       }
     >
       {/* Criar post */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-4">
+      <div className="border-b border-gray-200 dark:border-gray-800 p-4">
         <div className="flex gap-3">
-          <img
-            src={getAvatarUrl(currentUser.profilePicture, currentUser.id)}
-            alt="Você" 
-            className="h-11 w-11 rounded-full object-cover flex-shrink-0"
-          />
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt="Você" 
+              className="h-11 w-11 rounded-full object-cover flex-shrink-0"
+            />
+          ) : (
+            <DefaultAvatar name={currentUser.username} size="lg" className="flex-shrink-0" />
+          )}
+          
           <div className="flex-1">
             <textarea 
               value={newPost} 
@@ -219,13 +239,13 @@ function Feed() {
                 if (e.key === 'Enter' && e.ctrlKey && !isPosting) handleCreatePost(); 
               }}
               placeholder="O que está acontecendo?"
-              className="w-full h-20 resize-none focus:outline-none text-gray-800 dark:text-white dark:bg-gray-800 placeholder-gray-400 dark:placeholder-gray-500 text-lg"
+              className="w-full h-20 resize-none focus:outline-none text-gray-900 dark:text-white bg-transparent placeholder-gray-500 dark:placeholder-gray-400 text-lg"
               disabled={isPosting}
             />
             
             <ImageUpload onImageUploaded={setPostImage} />
             
-            <div className="border-t border-gray-100 dark:border-gray-700 pt-3 flex justify-between items-center mt-3">
+            <div className="border-t border-gray-200 dark:border-gray-800 pt-3 flex justify-between items-center mt-3">
               <div className="flex items-center gap-2">
                 <span className={`text-xs font-medium ${isOverLimit ? 'text-red-500' : isNearLimit ? 'text-orange-500' : 'text-gray-400'}`}>
                   {charCount > 0 && `${charCount}/${maxChars}`}
@@ -235,9 +255,9 @@ function Feed() {
                 type="button" 
                 onClick={handleCreatePost} 
                 disabled={(!newPost.trim() && !postImage) || isOverLimit || isPosting}
-                className="bg-gradient-to-r from-orange-500 to-red-600 text-white font-bold py-2 px-5 rounded-full hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="bg-[rgb(29,155,240)] hover:bg-[rgb(26,140,216)] text-white font-bold py-2 px-5 rounded-full transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isPosting ? 'Publicando...' : 'Publicar'}
+                {isPosting ? 'Publicando...' : 'Postar'}
               </button>
             </div>
           </div>
@@ -247,38 +267,35 @@ function Feed() {
       {/* Posts */}
       {isLoading ? (
         <FeedSkeleton />
-      ) : (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden">
-          {posts.length === 0 && (
-            <div className="p-10 text-center">
-              <svg className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-              </svg>
-              <p className="text-gray-500 dark:text-gray-400 text-lg font-medium">
-                Seu feed está vazio
-              </p>
-              <p className="text-gray-400 dark:text-gray-500 text-sm mt-2">
-                Siga pessoas para ver posts aqui ou publique algo!
-              </p>
-            </div>
-          )}
-          {posts.map((post) => (
-            <PostCard
-              key={post.id}
-              post={post}
-              currentUser={currentUser}
-              onLike={handleLike}
-              onRepost={handleRepost}
-              onRemoveRepost={handleRemoveRepost}
-              onComment={toggleComments}
-              openComments={openComments}
-              comments={comments}
-              commentInput={commentInput}
-              setCommentInput={setCommentInput}
-              onAddComment={handleAddComment}
-            />
-          ))}
+      ) : posts.length === 0 ? (
+        <div className="p-10 text-center">
+          <svg className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+          </svg>
+          <p className="text-gray-500 dark:text-gray-400 text-lg font-medium">
+            Seu feed está vazio
+          </p>
+          <p className="text-gray-400 dark:text-gray-500 text-sm mt-2">
+            Siga pessoas para ver posts aqui ou publique algo!
+          </p>
         </div>
+      ) : (
+        posts.map((post) => (
+          <PostCard
+            key={post.id}
+            post={post}
+            currentUser={currentUser}
+            onLike={handleLike}
+            onRepost={handleRepost}
+            onRemoveRepost={handleRemoveRepost}
+            onComment={toggleComments}
+            openComments={openComments}
+            comments={comments}
+            commentInput={commentInput}
+            setCommentInput={setCommentInput}
+            onAddComment={handleAddComment}
+          />
+        ))
       )}
     </SocialLayout>
   );

@@ -1,59 +1,50 @@
+// src/pages/PostDetail.jsx
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import SocialLayout from '../components/SocialLayout';
-import { PostSkeleton } from '../components/LoadingSkeleton';
-import { timeAgo } from '../utils/dateUtils';
-import { getAvatarUrl, getImageUrl } from '../utils/imageUtils';
-import { buildProfilePath } from '../utils/profileRoutes';
-import { getCurrentUser } from '../utils/currentUserStorage';
 import { postService } from '../services';
 import { showToast } from '../utils/toast';
+import { getAvatarUrl, getPostImageUrl } from '../utils/imageUtils';
+import DefaultAvatar from '../components/DefaultAvatar';
+import { useCurrentUser } from '../hooks/useCurrentUser';
 
 function PostDetail() {
   const { postId } = useParams();
   const navigate = useNavigate();
-  const currentUser = getCurrentUser();
+  const { currentUser, isLoading: isUserLoading } = useCurrentUser(true);
   
   const [post, setPost] = useState(null);
   const [comments, setComments] = useState([]);
   const [commentInput, setCommentInput] = useState('');
   const [isLoading, setIsLoading] = useState(true);
-  const [isCommenting, setIsCommenting] = useState(false);
-  const [isLiking, setIsLiking] = useState(false);
 
   useEffect(() => {
-    loadPost();
-    loadComments();
-  }, [postId]);
+    if (currentUser) {
+      loadPost();
+    }
+  }, [postId, currentUser]);
 
   const loadPost = async () => {
     try {
       setIsLoading(true);
       const data = await postService.getPostById(postId);
       setPost(data);
+      
+      // Carregar comentários
+      const commentsData = await postService.getComments(postId);
+      setComments(commentsData);
     } catch (error) {
       console.error(error);
-      showToast.error('Post não encontrado');
+      showToast.error('Erro ao carregar post');
       navigate('/feed');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const loadComments = async () => {
-    try {
-      const data = await postService.getComments(postId);
-      setComments(data);
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
   const handleLike = async () => {
-    if (isLiking) return;
-    setIsLiking(true);
     try {
-      await postService.likePost(postId);
+      await postService.likePost(post.id);
       setPost(prev => ({
         ...prev,
         liked: !prev.liked,
@@ -62,280 +53,284 @@ function PostDetail() {
     } catch (err) {
       console.error(err);
       showToast.error('Erro ao curtir post');
-    } finally {
-      setTimeout(() => setIsLiking(false), 300);
     }
   };
 
   const handleRepost = async () => {
     try {
-      if (post.reposted) {
-        await postService.removeRepost(postId);
-        setPost(prev => ({
-          ...prev,
-          reposted: false,
-          reposts: Math.max(0, prev.reposts - 1)
-        }));
-        showToast.success('Repost removido');
-      } else {
-        await postService.repostPost(postId);
-        setPost(prev => ({
-          ...prev,
-          reposted: true,
-          reposts: prev.reposts + 1
-        }));
-        showToast.success('Post repostado!');
-      }
+      await postService.repostPost(post.id);
+      setPost(prev => ({
+        ...prev,
+        reposted: true,
+        reposts: (prev.reposts || 0) + 1
+      }));
+      showToast.success('Post repostado!');
     } catch (err) {
       console.error(err);
-      showToast.error('Erro ao repostar');
+      showToast.error(err.response?.data?.message || 'Erro ao repostar');
+    }
+  };
+
+  const handleRemoveRepost = async () => {
+    try {
+      await postService.removeRepost(post.id);
+      setPost(prev => ({
+        ...prev,
+        reposted: false,
+        reposts: Math.max(0, (prev.reposts || 0) - 1)
+      }));
+      showToast.success('Repost removido');
+    } catch (err) {
+      console.error(err);
+      showToast.error('Erro ao remover repost');
     }
   };
 
   const handleAddComment = async () => {
     const content = commentInput.trim();
-    if (!content || isCommenting) return;
-    
-    setIsCommenting(true);
+    if (!content) return;
+
     try {
-      const newComment = await postService.addComment(postId, content);
+      const newComment = await postService.addComment(post.id, content);
       setComments(prev => [...prev, newComment]);
-      setPost(prev => ({ ...prev, comments: prev.comments + 1 }));
       setCommentInput('');
+      setPost(prev => ({ ...prev, comments: (prev.comments || 0) + 1 }));
       showToast.success('Comentário adicionado!');
     } catch (err) {
       console.error(err);
       showToast.error('Erro ao adicionar comentário');
-    } finally {
-      setIsCommenting(false);
     }
   };
 
   const formatFullDate = (dateStr) => {
     const date = new Date(dateStr);
-    return date.toLocaleString('pt-BR', {
-      hour: '2-digit',
-      minute: '2-digit',
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric'
-    });
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    const day = date.getDate().toString().padStart(2, '0');
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const year = date.getFullYear();
+    return `${hours}:${minutes} · ${day}/${month}/${year}`;
   };
+
+  if (isUserLoading || !currentUser) {
+    return (
+      <SocialLayout currentUser={currentUser}>
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-8 text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mx-auto mb-4"></div>
+          <p className="text-gray-600 dark:text-gray-400">Carregando...</p>
+        </div>
+      </SocialLayout>
+    );
+  }
 
   if (isLoading) {
     return (
       <SocialLayout currentUser={currentUser}>
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden">
-          <PostSkeleton />
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-8 text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mx-auto mb-4"></div>
+          <p className="text-gray-600 dark:text-gray-400">Carregando post...</p>
         </div>
       </SocialLayout>
     );
   }
 
   if (!post) {
-    return null;
+    return (
+      <SocialLayout currentUser={currentUser}>
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-8 text-center">
+          <p className="text-gray-600 dark:text-gray-400">Post não encontrado</p>
+        </div>
+      </SocialLayout>
+    );
   }
 
-  const isMe = currentUser.username === post.username;
-  const profilePath = buildProfilePath('@' + post.username);
+  const avatarUrl = getAvatarUrl(post.profilePicture, post.userId);
+  const postImageUrl = getPostImageUrl(post.imageUrl);
+  const currentUserAvatarUrl = getAvatarUrl(currentUser.profilePicture, currentUser.id);
 
   return (
     <SocialLayout currentUser={currentUser}>
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden">
         {/* Header com botão voltar */}
-        <div className="sticky top-0 z-10 bg-white/80 dark:bg-gray-800/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-700">
-          <div className="flex items-center gap-4 px-4 py-3">
-            <button
-              onClick={() => navigate(-1)}
-              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
-            >
-              <svg className="w-5 h-5 text-gray-900 dark:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-            </button>
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Post</h1>
-          </div>
+        <div className="border-b border-gray-200 dark:border-gray-700 p-4 flex items-center gap-4">
+          <button
+            onClick={() => navigate(-1)}
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition"
+          >
+            <svg className="w-5 h-5 text-gray-700 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+          </button>
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Post</h1>
         </div>
 
-        {/* Conteúdo do Post */}
-        <div className="p-4">
-          {/* Informações do autor */}
-          <div className="flex items-start gap-3 mb-3">
-            <Link to={profilePath}>
-              <img 
-                src={getAvatarUrl(post.profilePicture, post.userId)} 
+        {/* Conteúdo do post */}
+        <div className="p-6">
+          {/* Autor */}
+          <div className="flex items-center gap-3 mb-4">
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
                 alt={post.username}
-                className="h-12 w-12 rounded-full object-cover hover:opacity-90 transition" 
+                className="h-12 w-12 rounded-full object-cover"
               />
-            </Link>
+            ) : (
+              <DefaultAvatar name={post.username} size="lg" />
+            )}
             <div>
-              <Link to={profilePath} className="font-bold text-gray-900 dark:text-white hover:underline block">
-                {post.username}
-              </Link>
-              <span className="text-gray-500 dark:text-gray-400 text-sm">
-                @{post.username}
-              </span>
+              <p className="font-bold text-gray-900 dark:text-white">{post.username}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">@{post.username}</p>
             </div>
           </div>
 
-          {/* Conteúdo do post */}
-          <div className="mb-4">
-            <p className="text-gray-900 dark:text-gray-100 text-[23px] leading-normal whitespace-pre-wrap break-words">
-              {post.content}
-            </p>
-          </div>
+          {/* Conteúdo */}
+          <p className="text-2xl text-gray-900 dark:text-white mb-4 whitespace-pre-wrap break-words">
+            {post.content}
+          </p>
 
-          {/* Imagem do post */}
-          {post.imageUrl && (
-            <div className="mb-4 rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-700">
-              <img 
-                src={getImageUrl(post.imageUrl)} 
-                alt="Post"
-                className="w-full object-cover" 
-              />
-            </div>
+          {/* Imagem */}
+          {postImageUrl && (
+            <img
+              src={postImageUrl}
+              alt="Post"
+              className="w-full rounded-2xl mb-4 max-h-[600px] object-cover"
+            />
           )}
 
-          {/* Data e hora */}
-          <div className="text-gray-500 dark:text-gray-400 text-[15px] mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
+          {/* Data/hora */}
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
             {formatFullDate(post.createdAt)}
-          </div>
+          </p>
 
           {/* Estatísticas */}
-          <div className="flex items-center gap-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <div className="flex items-center gap-1">
+          <div className="flex items-center gap-6 mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
+            <div className="flex items-center gap-2">
               <span className="font-bold text-gray-900 dark:text-white">{post.reposts || 0}</span>
-              <span className="text-gray-500 dark:text-gray-400 text-sm">Reposts</span>
+              <span className="text-sm text-gray-500 dark:text-gray-400">Reposts</span>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
               <span className="font-bold text-gray-900 dark:text-white">{post.likes || 0}</span>
-              <span className="text-gray-500 dark:text-gray-400 text-sm">Curtidas</span>
+              <span className="text-sm text-gray-500 dark:text-gray-400">Curtidas</span>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
               <span className="font-bold text-gray-900 dark:text-white">{post.comments || 0}</span>
-              <span className="text-gray-500 dark:text-gray-400 text-sm">Comentários</span>
+              <span className="text-sm text-gray-500 dark:text-gray-400">Comentários</span>
             </div>
           </div>
 
-          {/* Ações */}
-          <div className="flex items-center justify-around py-2 border-b border-gray-200 dark:border-gray-700">
+          {/* Botões de ação */}
+          <div className="flex items-center justify-around py-3 border-b border-gray-200 dark:border-gray-700">
             {/* Comentar */}
-            <button 
-              className="group flex items-center justify-center p-3 rounded-full hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
-            >
-              <svg className="w-6 h-6 text-gray-500 dark:text-gray-400 group-hover:text-blue-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <button className="flex items-center gap-2 text-gray-500 hover:text-blue-500 transition">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
             </button>
 
             {/* Repost */}
-            {!isMe && (
-              <button 
-                onClick={handleRepost}
-                className={`group flex items-center justify-center p-3 rounded-full hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors ${post.reposted ? 'text-green-600 dark:text-green-500' : ''}`}
-              >
-                <svg className={`w-6 h-6 transition-colors ${post.reposted ? 'text-green-600 dark:text-green-500' : 'text-gray-500 dark:text-gray-400 group-hover:text-green-600'}`} fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M23.77 15.67a.749.749 0 0 0-1.06 0l-2.22 2.22V7.65a3.755 3.755 0 0 0-3.75-3.75h-4.5a.75.75 0 0 0 0 1.5h4.5c1.24 0 2.25 1.01 2.25 2.25v10.24l-2.22-2.22a.749.749 0 1 0-1.06 1.06l3.5 3.5a.747.747 0 0 0 1.06 0l3.5-3.5a.749.749 0 0 0 0-1.06Zm-10.66 3.28H8.5c-1.24 0-2.25-1.01-2.25-2.25V6.46l2.22 2.22a.752.752 0 0 0 1.062 0 .749.749 0 0 0 0-1.06l-3.5-3.5a.747.747 0 0 0-1.06 0l-3.5 3.5a.749.749 0 1 0 1.06 1.06l2.22-2.22V16.7a3.755 3.755 0 0 0 3.75 3.75h4.61a.75.75 0 0 0 0-1.5Z"/>
-                </svg>
-              </button>
-            )}
-
-            {/* Like */}
-            <button 
-              onClick={handleLike}
-              disabled={isLiking}
-              className="group flex items-center justify-center p-3 rounded-full hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-colors"
+            <button
+              onClick={post.reposted ? handleRemoveRepost : handleRepost}
+              className={`flex items-center gap-2 transition ${
+                post.reposted ? 'text-green-500' : 'text-gray-500 hover:text-green-500'
+              }`}
             >
-              {post.liked ? (
-                <svg className={`w-6 h-6 text-pink-600 dark:text-pink-500 transition-transform ${isLiking ? 'scale-125' : ''}`} fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 21.638h-.014C9.403 21.59 1.95 14.856 1.95 8.478c0-3.064 2.525-5.754 5.403-5.754 2.29 0 3.83 1.58 4.646 2.73.814-1.148 2.354-2.73 4.645-2.73 2.88 0 5.404 2.69 5.404 5.755 0 6.376-7.454 13.11-10.037 13.157H12z"/>
-                </svg>
-              ) : (
-                <svg className={`w-6 h-6 text-gray-500 dark:text-gray-400 group-hover:text-pink-600 transition-colors ${isLiking ? 'scale-125' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-                </svg>
-              )}
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
             </button>
 
-            {/* Share */}
-            <button 
-              className="group flex items-center justify-center p-3 rounded-full hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+            {/* Like */}
+            <button
+              onClick={handleLike}
+              className={`flex items-center gap-2 transition ${
+                post.liked ? 'text-red-500' : 'text-gray-500 hover:text-red-500'
+              }`}
             >
-              <svg className="w-6 h-6 text-gray-500 dark:text-gray-400 group-hover:text-blue-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className={`w-6 h-6 ${post.liked ? 'fill-current' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+              </svg>
+            </button>
+
+            {/* Compartilhar */}
+            <button className="flex items-center gap-2 text-gray-500 hover:text-orange-500 transition">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
               </svg>
             </button>
           </div>
 
           {/* Input de comentário */}
-          <div className="py-4 border-b border-gray-200 dark:border-gray-700">
-            <div className="flex gap-3">
+          <div className="mt-6 flex gap-3">
+            {currentUserAvatarUrl ? (
               <img
-                src={getAvatarUrl(currentUser.avatar, currentUser.id)}
+                src={currentUserAvatarUrl}
                 alt="Você"
                 className="h-12 w-12 rounded-full object-cover flex-shrink-0"
               />
-              <div className="flex-1">
-                <textarea
-                  value={commentInput}
-                  onChange={(e) => setCommentInput(e.target.value)}
-                  placeholder="Escreva sua resposta..."
-                  className="w-full min-h-[80px] resize-none bg-transparent text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 text-[17px] focus:outline-none"
-                  disabled={isCommenting}
-                />
-                <div className="flex justify-end mt-3">
-                  <button
-                    onClick={handleAddComment}
-                    disabled={!commentInput.trim() || isCommenting}
-                    className="bg-gradient-to-r from-orange-500 to-red-600 text-white font-bold px-6 py-2 rounded-full hover:opacity-90 disabled:opacity-50 transition-opacity"
-                  >
-                    {isCommenting ? 'Respondendo...' : 'Responder'}
-                  </button>
-                </div>
+            ) : (
+              <DefaultAvatar name={currentUser.username} size="lg" className="flex-shrink-0" />
+            )}
+            <div className="flex-1">
+              <textarea
+                value={commentInput}
+                onChange={(e) => setCommentInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && e.ctrlKey) {
+                    handleAddComment();
+                  }
+                }}
+                placeholder="Adicione um comentário..."
+                className="w-full h-20 resize-none focus:outline-none text-gray-800 dark:text-white dark:bg-gray-800 placeholder-gray-400 dark:placeholder-gray-500 border border-gray-200 dark:border-gray-700 rounded-xl p-3"
+              />
+              <div className="mt-2 flex justify-end">
+                <button
+                  onClick={handleAddComment}
+                  disabled={!commentInput.trim()}
+                  className="bg-gradient-to-r from-orange-500 to-red-600 text-white font-bold py-2 px-5 rounded-full hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Comentar
+                </button>
               </div>
             </div>
           </div>
+        </div>
 
-          {/* Lista de comentários */}
-          <div>
-            {comments.length === 0 && (
-              <div className="py-10 text-center">
-                <p className="text-gray-500 dark:text-gray-400 text-[15px]">
-                  Nenhuma resposta ainda. Seja o primeiro a responder!
-                </p>
-              </div>
-            )}
-            {comments.map(comment => (
-              <div key={comment.id} className="py-4 border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                <div className="flex gap-3">
-                  <Link to={buildProfilePath('@' + comment.username)}>
-                    <img 
-                      src={getAvatarUrl(comment.profilePicture, comment.userId)} 
-                      alt={comment.username}
-                      className="h-10 w-10 rounded-full object-cover hover:opacity-90 transition" 
-                    />
-                  </Link>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1 mb-1">
-                      <Link to={buildProfilePath('@' + comment.username)} className="font-bold text-gray-900 dark:text-white hover:underline text-[15px]">
-                        {comment.username}
-                      </Link>
-                      <span className="text-gray-500 dark:text-gray-400 text-[15px]">
-                        @{comment.username}
-                      </span>
-                      <span className="text-gray-500 dark:text-gray-400 text-[15px]">·</span>
-                      <span className="text-gray-500 dark:text-gray-400 text-[15px]">
-                        {timeAgo(comment.createdAt)}
-                      </span>
+        {/* Lista de comentários */}
+        <div className="border-t border-gray-200 dark:border-gray-700">
+          {comments.length === 0 ? (
+            <p className="text-center text-gray-500 dark:text-gray-400 py-8">
+              Nenhum comentário ainda. Seja o primeiro!
+            </p>
+          ) : (
+            comments.map((comment) => {
+              const commentAvatarUrl = getAvatarUrl(comment.profilePicture, comment.userId);
+              
+              return (
+                <div key={comment.id} className="border-b border-gray-100 dark:border-gray-700 last:border-0 p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
+                  <div className="flex gap-3">
+                    {commentAvatarUrl ? (
+                      <img
+                        src={commentAvatarUrl}
+                        alt={comment.username}
+                        className="h-10 w-10 rounded-full object-cover flex-shrink-0"
+                      />
+                    ) : (
+                      <DefaultAvatar name={comment.username} size="md" />
+                    )}
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="font-bold text-gray-900 dark:text-white">@{comment.username}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {new Date(comment.createdAt).toLocaleDateString('pt-BR')}
+                        </p>
+                      </div>
+                      <p className="text-gray-800 dark:text-gray-200">{comment.content}</p>
                     </div>
-                    <p className="text-gray-900 dark:text-gray-100 text-[15px] leading-normal whitespace-pre-wrap break-words">
-                      {comment.content}
-                    </p>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              );
+            })
+          )}
         </div>
       </div>
     </SocialLayout>

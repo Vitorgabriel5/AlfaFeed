@@ -1,14 +1,34 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
+export const getAvatarUrl = (profilePicture, userId) => {
+  // Se tem foto de perfil, usar ela
+  if (profilePicture) {
+    // Se começar com /api/files/, adicionar URL do backend
+    if (profilePicture.startsWith('/api/files/')) {
+      return `http://localhost:8080${profilePicture}`;
+    }
+    // Se for URL completa, retornar direto
+    return profilePicture;
+  }
+  
+  // ✅ Avatar padrão (letra inicial em gradiente)
+  return null; // Retorna null para usar avatar padrão no componente
+};
 
-export function getAvatarUrl(pic, userId) {
-  if (!pic) return `https://i.pravatar.cc/120?u=${userId}`;
-  if (pic.startsWith('/api/files/')) return `${API_BASE_URL.replace('/api', '')}${pic}`;
-  if (pic.startsWith('http')) return pic;
-  return `${API_BASE_URL.replace('/api', '')}${pic}`;
-}
+export const getPostImageUrl = (imageUrl) => {
+  if (!imageUrl) return null;
+  
+  if (imageUrl.startsWith('/api/files/')) {
+    return `http://localhost:8080${imageUrl}`;
+  }
+  
+  return imageUrl;
+};
 
-export function getImageUrl(path) {
-  if (!path) return null;
-  if (path.startsWith('http')) return path;
-  return `${API_BASE_URL.replace('/api', '')}${path}`;
-}
+export const getCoverImageUrl = (coverPicture) => {
+  if (!coverPicture) return null;
+  
+  if (coverPicture.startsWith('/api/files/')) {
+    return `http://localhost:8080${coverPicture}`;
+  }
+  
+  return coverPicture;
+};

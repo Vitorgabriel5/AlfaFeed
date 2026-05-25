@@ -54,4 +54,8 @@ export const postService = {
     });
     return response.data;
   },
+    getPostById: async (postId) => {
+    const response = await api.get(`/post/${postId}`);
+    return response.data;
+  },
 };
